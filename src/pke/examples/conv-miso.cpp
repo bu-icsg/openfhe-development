@@ -5,8 +5,8 @@
 #include <vector>
 #include <cmath>
 #include "openfhe.h"
-#include "NN-utils.h"
-#include "utils.h"
+#include "enn/NN-utils.h"
+#include "enn/utils.h"
 #include <iomanip>
 
 using namespace std;

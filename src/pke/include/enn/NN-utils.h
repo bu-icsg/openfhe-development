@@ -13,7 +13,6 @@
 
 using namespace std;
 using namespace lbcrypto;
-
 using Ptxt = Plaintext;
 using Ctxt = Ciphertext<DCRTPoly>;
 
@@ -23,16 +22,13 @@ class ENN {
 public:
     ENN() {}
 
-    /*
-     * Context generating/loading stuff
-     */
     Ctxt relu(Ctxt ct, int degree);
-    Ctxt initialLayer(Ctxt ct);
-    vector<Ctxt> conv1(Ctxt ct, int channels);
-    Ctxt conv3x3(Ctxt ct, Ctxt weights, Ctxt bias, int size) ;
-    Ctxt finalLayer(Ctxt ct);
+    vector<vector<vector<double>>> pack_weights_mimo(vector<vector<double>> weights, int cn, int f, int img_size);
+    vector<vector<vector<Ctxt>>> pack_images_mimo(CryptoContext<DCRTPoly> cc, KeyPair<DCRTPoly> keys, vector<vector<double>> x_s, int cn, int f, int iw, int ih, int padding);
+    vector<Ctxt> conv2d_mimo(vector<vector<vector<double>>> weight_list, vector<vector<vector<Ctxt>>> c_rotations, int f);
     vector<double> read_values_from_file(string filename);
     vector<double> read_image(const char *filename, int width, int height, int channels);
+
 };
 
 #endif  //OPENFHE_NN_UTILS_H
