@@ -7,8 +7,14 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include "openfhe.h"
 
 using namespace std;
+using namespace lbcrypto;
+using namespace bigintdyn;
+
+using Ptxt = Plaintext;
+using Ctxt = Ciphertext<DCRTPoly>;
 
 void compare_vectors(vector<double> v1, vector<double> v2, double precision) {
     int flag = 1;
@@ -48,14 +54,6 @@ void compare_conv_results(vector<vector<double>> v1, vector<Ctxt> ct, double pre
     }
     compare_vectors(v1_flattened, conv_result_decrypted, precision);
 }
-
-// why this doesn't work?
-//vector<double> v1_flattened(v1.size()*v1[0].size());
-//for (int i = 0; i < v1.size(); ++i) {
-//    for (int j = 0; j < v1[0].size(); ++j) {
-//        v1_flattened[i*v1[0].size() + j] = v1[i][j];
-//    }
-//}
 
 vector<vector<vector<double>>> ctxt_to_vector(Ctxt ct){
     int no_limbs = ct->GetElements()[0].GetNumOfElements();
@@ -176,7 +174,6 @@ vector<vector<double>> conv2d(const vector<vector<double>>& inputs, const vector
     }
     return output_2D;
 }
-
 
 // type_check:
 //int status;

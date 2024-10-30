@@ -91,13 +91,30 @@ if ( BUILD_EXAMPLES)
 	add_dependencies( allpke allpkeexamples )
 endif()
 
+#############
+set(DEPRECATED_APPS "")
+if ( BUILD_EXAMPLES)
+	file (GLOB PKE_EXAMPLES_SRC_FILES CONFIGURE_DEPENDS deprecated/*.cpp)
+	foreach (app ${PKE_EXAMPLES_SRC_FILES})
+		get_filename_component ( exe ${app} NAME_WE )
+		add_executable ( ${exe} ${app} )
+		set_property(TARGET ${exe} PROPERTY RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/deprecated/pke)
+		set( DEPRECATED_APPS ${DEPRECATED_APPS} ${exe} )
+		target_link_libraries ( ${exe} ${PKELIBS} )
+	endforeach()
+
+	add_custom_target( alldeprecatedexamples )
+	add_dependencies( alldeprecatedexamples ${DEPRECATED_APPS} )
+	add_dependencies( allpke alldeprecatedexamples )
+endif()
+#############
+
 set( PKEEXTRAS "" )
 if (BUILD_EXTRAS)
 	file (GLOB PKE_EXTRAS_SRC_FILES CONFIGURE_DEPENDS extras/*.cpp)
 	foreach (app ${PKE_EXTRAS_SRC_FILES})
 		get_filename_component ( exe ${app} NAME_WE )
-		add_executable (${exe} ${app}
-				lib/enn/NNutils.cpp)
+		add_executable (${exe} ${app})
 		set_property(TARGET ${exe} PROPERTY RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/extras/pke)
 		set( PKEEXTRAS ${PKEEXTRAS} ${exe} )
 		target_link_libraries ( ${exe} ${PKELIBS} )

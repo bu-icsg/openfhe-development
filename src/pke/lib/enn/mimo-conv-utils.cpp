@@ -1,19 +1,99 @@
 //
 // Created by Şeyda Nur Güzelhan on 9/6/24.
 //
-#include "enn/NN-utils.h"
-
-Ctxt ENN::relu(Ctxt ct, int degree){
-
-    auto cc = ct->GetCryptoContext();
-
-    double lowerBound = -0.4;
-    double upperBound = 0.4;
-
-    return cc->EvalLogistic(ct, lowerBound, upperBound, degree);
-};
+#include "enn/mimo-conv-utils.h"
 
 vector<vector<vector<Ctxt>>> ENN::pack_images_mimo(CryptoContext<DCRTPoly> cc, KeyPair<DCRTPoly> keys, vector<vector<double>> x_s, int cn, int f, int iw, int ih, int padding) {
+
+    int ci = x_s.size();
+    int ci_cn = ceil(ci / cn);
+    vector<vector<double>> x_inputs(ci_cn);
+    for (int i=0; i<ci_cn; i++){
+        for (int j=0; j<min(cn, ci); j++){
+            x_inputs[i].insert(x_inputs[i].end(), x_s[i*cn+j].begin(), x_s[i*cn+j].end());
+        }
+    }
+
+    vector<Ctxt> ct_inputs;
+    for (int i=0; i<ci_cn; i++){
+        Ptxt temp = cc->MakeCKKSPackedPlaintext(x_inputs[i]);
+        ct_inputs.push_back(cc->Encrypt(keys.publicKey, temp));
+    }
+
+    vector<vector<vector<Ctxt>>> c_rotations(ci_cn, vector<vector<Ctxt>>(min(cn,ci), vector<Ctxt>(f*f)));
+
+    vector<int> rot_index = {-padding-iw, -iw, +padding-iw, -padding, 0, +padding, -padding+iw, iw, +padding+iw, iw*ih};
+    cc->EvalRotateKeyGen(keys.secretKey, rot_index);
+
+    if (f==3) {
+        for (int i = 0; i < ci_cn; i++) {
+            for (int j = 0; j < min(cn, ci); j++) {
+                for (int k = 0; k < f * f; k++) {
+//                    c_rotations[i][j][k] = Automorph(ct_inputs[i], rot_index[k]);
+                    c_rotations[i][j][k] = cc->EvalRotate(ct_inputs[i], rot_index[k]);
+                }
+//                ct_inputs[i] = Automorph(ct_inputs[i], ih * iw);
+                ct_inputs[i] = cc->EvalRotate(ct_inputs[i], ih * iw);
+            }
+        }
+    }
+    else if(f == 5){
+        // complete
+    }
+    return c_rotations;
+}
+
+vector<Ctxt> ENN::conv2d_mimo(vector<vector<vector<double>>> weight_list, vector<vector<vector<Ctxt>>> c_rotations, KeyPair<DCRTPoly> keys, int f) {
+
+    int co_cn = weight_list.size();
+    int ci_cn = c_rotations.size();
+    auto cc = c_rotations[0][0][0]->GetCryptoContext();
+    auto algo = cc->GetScheme();
+
+
+
+
+    vector<Ctxt> inter_out_ct(co_cn);
+
+    vector<int> rotIndex = {-5,-4,-3,-1,0,1,3,4,5};
+    vector<PrivateKey<DCRTPoly>> secret_keys(f*f);
+    for (int i=0; i<f*f; i++){
+        secret_keys[i] = Automorph_poly(c_rotations[0][0][0], keys.secretKey, rotIndex[i]);
+    }
+
+    for (int j = 0; j < co_cn; j++) {
+        vector<Ctxt> inter_in_ct;
+        for (int h = 0; h < c_rotations[0].size(); h++) {
+            for (int l = 0; l < ci_cn; l++) {
+                vector<Ctxt> conv_ct;
+                for (int k = 0; k < f * f; k++) {
+                    Ptxt weight_pt = cc->MakeCKKSPackedPlaintext(weight_list[j][k]);
+                    Ctxt weight = cc->Encrypt(keys.secretKey,weight_pt);
+//                    Ctxt weight = cc->Encrypt(secret_keys[k],weight_pt);
+
+//                    uint32_t autoIndex = FindAutomorphismIndex2nComplex(rotIndex[k], cc->GetCyclotomicOrder());  //
+//                    auto evalKeyMap = CryptoContextImpl<DCRTPolyImpl<mubintvec<ubint<unsigned long long>>>>::GetEvalAutomorphismKeyMap(c_rotations[0][0][0]->GetKeyTag());
+//                    auto evalKeyIterator = evalKeyMap.find(autoIndex);
+
+//                    algo->KeySwitchInPlace(weight, evalKeyIterator->second);
+//                    algo->KeySwitchInPlace(c_rotations[l][h][k], evalKeyIterator->second);
+
+                    Ctxt cMult     = cc->EvalMult(weight, c_rotations[l][h][k]);
+
+                    conv_ct.push_back(cMult);
+                }
+                Ctxt inter_conv_sum = cc->EvalAddMany(conv_ct);
+                inter_in_ct.push_back(inter_conv_sum);
+            }
+        }
+        Ctxt inter_out_sum = cc->EvalAddMany(inter_in_ct);
+        inter_out_ct[j]    = inter_out_sum;
+    }
+
+    return inter_out_ct;
+}
+
+vector<vector<vector<Ctxt>>> ENN::pack_images_mimo_pt(CryptoContext<DCRTPoly> cc, KeyPair<DCRTPoly> keys, vector<vector<double>> x_s, int cn, int f, int iw, int ih, int padding) {
 
     int ci = x_s.size();
     int ci_cn = ceil(ci / cn);
@@ -132,7 +212,7 @@ vector<vector<vector<double>>> ENN::pack_weights_mimo(vector<vector<double>> wei
     return weight_list;
 }
 
-vector<Ctxt> ENN::conv2d_mimo(vector<vector<vector<double>>> weight_list, vector<vector<vector<Ctxt>>> c_rotations, int f) {
+vector<Ctxt> ENN::conv2d_mimo_pt(vector<vector<vector<double>>> weight_list, vector<vector<vector<Ctxt>>> c_rotations, int f) {
 
     int co_cn = weight_list.size();
     int ci_cn = c_rotations.size();
@@ -159,56 +239,51 @@ vector<Ctxt> ENN::conv2d_mimo(vector<vector<vector<double>>> weight_list, vector
     return inter_out_ct;
 }
 
-vector<double> ENN::read_values_from_file(string filename){
+Ctxt ENN::Automorph(Ctxt ct1, int i){
+    auto evalKeyMap = CryptoContextImpl<DCRTPolyImpl<mubintvec<ubint<unsigned long long>>>>::GetEvalAutomorphismKeyMap(ct1->GetKeyTag());
 
-    vector<double> values;
-    ifstream file(filename);
+    usint M = ct1->GetCryptoParameters()->GetElementParams()->GetCyclotomicOrder();
+    uint32_t autoIndex = FindAutomorphismIndex2nComplex(i, M);  //
 
-    if (!file.is_open()) {
-        std::cerr << "Can not open " << filename << std::endl;
-    }
+    auto cv = ct1->GetElements();
+    usint N = cv[0].GetRingDimension();
+    vector<usint> vec(N);
+    PrecomputeAutoMap(N, autoIndex, &vec);
 
-    string row;
-    while (getline(file, row)) {
-        istringstream stream(row);
-        string value;
-        while (std::getline(stream, value, ',')) {
-            values.push_back(stod(value));
-        }
-    }
+    auto algo = ct1->GetCryptoContext()->GetScheme();
+    auto cRot2 = ct1->Clone();
 
-    file.close();
-    return values;
+    //    auto evalKeyIterator = evalKeyMap.find(autoIndex);
+    //    algo->KeySwitchInPlace(cRot2, evalKeyIterator->second);
+
+    cRot2->GetElements()[0] = cRot2->GetElements()[0].AutomorphismTransform(autoIndex, vec);
+    cRot2->GetElements()[1] = cRot2->GetElements()[1].AutomorphismTransform(autoIndex, vec);
+
+    return cRot2;
 }
 
-vector<double> ENN::read_image(const char *filename, int width, int height, int channels) {
+PrivateKey<DCRTPoly> ENN::Automorph_poly(Ctxt ct1, PrivateKey<DCRTPoly> sk, int i){
+    auto evalKeyMap = CryptoContextImpl<DCRTPolyImpl<mubintvec<ubint<unsigned long long>>>>::GetEvalAutomorphismKeyMap(ct1->GetKeyTag());
 
-    unsigned char* image_data = stbi_load(filename, &width, &height, &channels, 0);
+    usint M = ct1->GetCryptoParameters()->GetElementParams()->GetCyclotomicOrder();
+    uint32_t autoIndex = FindAutomorphismIndex2nComplex(i, M);  //
 
-    if (!image_data) {
-        cerr << "Could not load the image in " << filename << endl;
-        return vector<double>();
-    }
+    usint N = M/2;
+    vector<usint> vec(N);
+    PrecomputeAutoMap(N, autoIndex, &vec);
 
-    vector<double> imageVector;
-    imageVector.reserve(width * height * channels);
+    sk->GetPrivateElement().AutomorphismTransform(autoIndex, vec);
 
-    for (int i = 0; i < width * height; ++i) {
-        //Channel R
-        imageVector.push_back(static_cast<double>(image_data[3 * i]) / 255.0f);
-    }
-    for (int i = 0; i < width * height; ++i) {
-        //Channel G
-        imageVector.push_back(static_cast<double>(image_data[1 + 3 * i]) / 255.0f);
-    }
-    for (int i = 0; i < width * height; ++i) {
-        //Channel B
-        imageVector.push_back(static_cast<double>(image_data[2 + 3 * i]) / 255.0f);
-    }
-
-    stbi_image_free(image_data);
-
-    return imageVector;
+    return sk;
 }
 
+Ctxt ENN::relu(Ctxt ct, int degree){
+
+    auto cc = ct->GetCryptoContext();
+
+    double lowerBound = -0.4;
+    double upperBound = 0.4;
+
+    return cc->EvalLogistic(ct, lowerBound, upperBound, degree);
+};
 

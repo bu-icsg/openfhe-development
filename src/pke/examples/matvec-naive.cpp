@@ -6,7 +6,7 @@
 #include <vector>
 #include <cmath>
 #include "openfhe.h"
-#include "enn/NN-utils.h"
+#include "enn/mimo-conv-utils.h"
 #include "enn/utils.h"
 
 using namespace std;
